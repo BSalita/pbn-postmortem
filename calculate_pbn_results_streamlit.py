@@ -1,4 +1,4 @@
-"""
+﻿"""
 PBN Results Calculator Streamlit Application
 """
 
@@ -44,9 +44,31 @@ from endplay.dds import par, calc_all_tables
 from endplay.dealer import generate_deals
 
 _APP_DIR = pathlib.Path(__file__).resolve().parent
-for _p in (_APP_DIR, _APP_DIR / 'mlBridge', _APP_DIR / 'streamlitlib'):
-    if _p.is_dir() and str(_p) not in sys.path:
-        sys.path.append(str(_p))
+_SRC_DIR = _APP_DIR.parent
+_REQUIRED_LIBS = ('mlBridge', 'streamlitlib')
+_resolved_libs = []
+for _name in _REQUIRED_LIBS:
+    _local, _sibling = _APP_DIR / _name, _SRC_DIR / _name
+    if _local.is_dir():
+        _resolved_libs.append(_local)
+    elif _sibling.is_dir():
+        _resolved_libs.append(_sibling)
+    else:
+        raise FileNotFoundError(f"{_name} not found at {_local} or {_sibling}")
+# Package root for import mlBridge.*; lib dirs first for legacy import streamlitlib/acbllib.
+for _p in (_SRC_DIR, _APP_DIR):
+    _s = str(_p)
+    if _s not in sys.path:
+        sys.path.append(_s)
+for _p in _resolved_libs:
+    _s = str(_p)
+    if _p.name == 'mlBridge':
+        if _s not in sys.path:
+            sys.path.append(_s)  # logging_config and friends
+    else:
+        if _s in sys.path:
+            sys.path.remove(_s)
+        sys.path.insert(0, _s)
 
 from typing import Any
 
@@ -650,10 +672,10 @@ def create_sidebar():
     # Automated Postmortem Apps
     st.sidebar.markdown("---")
     st.sidebar.markdown("**Automated Postmortem Apps**")
-    st.sidebar.markdown("🔗 [ACBL Postmortem](https://acbl.postmortem.chat)")
-    st.sidebar.markdown("🔗 [French ffbridge Postmortem](https://ffbridge.postmortem.chat)")
-    st.sidebar.markdown("🔗 [Calculate PBN](https://pbn.postmortem.chat)")
-    #st.sidebar.markdown("🔗 [BridgeWebs Postmortem](https://bridgewebs.postmortem.chat)")
+    st.sidebar.markdown("ðŸ”— [ACBL Postmortem](https://acbl.postmortem.chat)")
+    st.sidebar.markdown("ðŸ”— [French ffbridge Postmortem](https://ffbridge.postmortem.chat)")
+    st.sidebar.markdown("ðŸ”— [Calculate PBN](https://pbn.postmortem.chat)")
+    #st.sidebar.markdown("ðŸ”— [BridgeWebs Postmortem](https://bridgewebs.postmortem.chat)")
     
     return
 
@@ -772,8 +794,8 @@ def reset_game_data():
 
 def initialize_website_specific():
 
-    st.session_state.assistant_logo = 'https://github.com/BSalita/Bridge_Game_Postmortem_Chatbot/blob/master/assets/logo_assistant.gif?raw=true' # 🥸 todo: put into config. must have raw=true for github url.
-    st.session_state.guru_logo = 'https://github.com/BSalita/Bridge_Game_Postmortem_Chatbot/blob/master/assets/logo_guru.png?raw=true' # 🥷todo: put into config file. must have raw=true for github url.
+    st.session_state.assistant_logo = 'https://github.com/BSalita/Bridge_Game_Postmortem_Chatbot/blob/master/assets/logo_assistant.gif?raw=true' # ðŸ¥¸ todo: put into config. must have raw=true for github url.
+    st.session_state.guru_logo = 'https://github.com/BSalita/Bridge_Game_Postmortem_Chatbot/blob/master/assets/logo_guru.png?raw=true' # ðŸ¥·todo: put into config file. must have raw=true for github url.
     st.session_state.game_results_url_default = None
     st.session_state.game_name = 'pbn'
     st.session_state.game_results_url = st.session_state.game_results_url_default
