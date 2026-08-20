@@ -382,6 +382,38 @@ def change_game_state_PBN(file_data,url,path_url,boards,df,everything_df):
     return boards
 
 
+def url_to_cache_key(url: str) -> str:
+    """Stable, filesystem-safe cache key for a PBN source URL: sanitized stem
+    plus a short hash of the full URL (so distinct URLs with the same filename
+    do not collide). Dashes are excluded from the stem so the key layout stays
+    unambiguous."""
+    import hashlib
+    import re
+    stem = re.sub(r'[^A-Za-z0-9._]+', '_', pathlib.Path(url).stem).strip('_')[:60] or 'pbn'
+    return f"{stem}-{hashlib.md5(url.encode('utf-8')).hexdigest()[:8]}"
+
+
+def save_augmented_df_to_cache(df: Any, url: str) -> None:
+    """Persist the augmented dataframe for headless consumers
+    (pbn_postmortem_mcp_server.py), mirroring the postmortem apps' parquet
+    caches. A sidecar df-{key}.json records the source URL since it cannot be
+    reconstructed from the sanitized filename. Write-only by design: the live
+    app always recomputes."""
+    # stdlib json: the module-level 'json' name is shadowed by endplay.parsers.json.
+    import json as _json
+    try:
+        cache_dir = pathlib.Path('cache')
+        cache_dir.mkdir(exist_ok=True)
+        key = url_to_cache_key(url)
+        cache_file = cache_dir / f'df-{key}.parquet'
+        df.write_parquet(cache_file)
+        meta = {'url': url, 'cached_at': datetime.now(timezone.utc).isoformat()}
+        (cache_dir / f'df-{key}.json').write_text(_json.dumps(meta), encoding='utf-8')
+        print(f"Saved postmortem cache {cache_file}: shape:{df.shape} size:{cache_file.stat().st_size}")
+    except Exception as e:
+        print(f"Unable to save postmortem cache for {url}: {e}")
+
+
 def change_game_state():
 
     st.markdown('<div style="height: 50px;"><a name="top-of-report"></a></div>', unsafe_allow_html=True)
@@ -479,6 +511,7 @@ def change_game_state():
         st.session_state.df = Process_PBN(path_url,boards,df,everything_df)
         st.session_state.df = filter_dataframe(st.session_state.df, st.session_state.group_id, st.session_state.session_id, st.session_state.player_id, st.session_state.partner_id)
         assert st.session_state.df.select(pl.col(pl.Object)).is_empty(), f"Found Object columns: {[col for col, dtype in st.session_state.df.schema.items() if dtype == pl.Object]}"
+        save_augmented_df_to_cache(st.session_state.df, url)
         
         # Register dataframe with session-specific connection
         con = get_session_duckdb_connection()
@@ -679,10 +712,10 @@ def create_sidebar():
     # Automated Postmortem Apps
     st.sidebar.markdown("---")
     st.sidebar.markdown("**Automated Postmortem Apps**")
-    st.sidebar.markdown("ðŸ”— [ACBL Postmortem](https://acbl.postmortem.chat)")
-    st.sidebar.markdown("ðŸ”— [French ffbridge Postmortem](https://ffbridge.postmortem.chat)")
-    st.sidebar.markdown("ðŸ”— [Calculate PBN](https://pbn.postmortem.chat)")
-    #st.sidebar.markdown("ðŸ”— [BridgeWebs Postmortem](https://bridgewebs.postmortem.chat)")
+    st.sidebar.markdown("🔗 [ACBL Postmortem](https://acbl.postmortem.chat)")
+    st.sidebar.markdown("🔗 [French ffbridge Postmortem](https://ffbridge.postmortem.chat)")
+    st.sidebar.markdown("🔗 [Calculate PBN](https://pbn.postmortem.chat)")
+    #st.sidebar.markdown("🔗 [BridgeWebs Postmortem](https://bridgewebs.postmortem.chat)")
     
     return
 
@@ -801,8 +834,8 @@ def reset_game_data():
 
 def initialize_website_specific():
 
-    st.session_state.assistant_logo = 'https://github.com/BSalita/Bridge_Game_Postmortem_Chatbot/blob/master/assets/logo_assistant.gif?raw=true' # ðŸ¥¸ todo: put into config. must have raw=true for github url.
-    st.session_state.guru_logo = 'https://github.com/BSalita/Bridge_Game_Postmortem_Chatbot/blob/master/assets/logo_guru.png?raw=true' # ðŸ¥·todo: put into config file. must have raw=true for github url.
+    st.session_state.assistant_logo = 'https://github.com/BSalita/Bridge_Game_Postmortem_Chatbot/blob/master/assets/logo_assistant.gif?raw=true' # 🥸 todo: put into config. must have raw=true for github url.
+    st.session_state.guru_logo = 'https://github.com/BSalita/Bridge_Game_Postmortem_Chatbot/blob/master/assets/logo_guru.png?raw=true' # 🥷todo: put into config file. must have raw=true for github url.
     st.session_state.game_results_url_default = None
     st.session_state.game_name = 'pbn'
     st.session_state.game_results_url = st.session_state.game_results_url_default
