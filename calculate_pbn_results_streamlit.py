@@ -394,8 +394,8 @@ def url_to_cache_key(url: str) -> str:
 
 
 def save_augmented_df_to_cache(df: Any, url: str) -> None:
-    """Persist the augmented dataframe for headless consumers
-    (pbn_postmortem_mcp_server.py), mirroring the postmortem apps' parquet
+    """Persist the augmented dataframe for MortyBridgeBot,
+    mirroring the postmortem apps' parquet
     caches. A sidecar df-{key}.json records the source URL since it cannot be
     reconstructed from the sanitized filename. Write-only by design: the live
     app always recomputes."""

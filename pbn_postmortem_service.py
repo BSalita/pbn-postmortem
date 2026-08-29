@@ -5,7 +5,7 @@ augmented board-results dataframe to cache/df-{key}.parquet right after
 augmentation, where key is a sanitized stem + short hash of the source PBN
 URL (see url_to_cache_key / save_augmented_df_to_cache in the app). A sidecar
 df-{key}.json records the original URL. This module is the shared,
-Streamlit-free core used by pbn_postmortem_mcp_server.py: it enumerates those
+Streamlit-free core exposed through MortyBridgeBot: it enumerates those
 parquets and runs DuckDB SQL against the dataframe registered as 'self',
 mirroring how the app's SQL favorites work.
 
