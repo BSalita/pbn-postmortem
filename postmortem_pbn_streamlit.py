@@ -1,4 +1,4 @@
-﻿"""
+"""
 postmortem-pbn Streamlit application
 """
 
