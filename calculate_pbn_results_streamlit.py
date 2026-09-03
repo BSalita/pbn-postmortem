@@ -24,6 +24,7 @@ import json
 import pickle
 from collections import defaultdict
 from datetime import datetime, timezone
+from urllib.parse import parse_qs, urlparse
 import sys
 import os
 import platform
@@ -289,6 +290,79 @@ def get_url_protocol(path):
     return options['protocol']
 
 
+# BBO Hand Viewer and similar share links put the deal in ?lin= (encoded LIN
+# body) or ?linurl= (URL of a .lin file). Parse the query string; do not fetch
+# the HTML page. endplay.parsers.lin.loads() is the right parser: the rest of
+# this app already consumes endplay Board objects (same as PBN). A LIN→PBN
+# round-trip would only serialize and re-parse those boards and can drop LIN
+# extras (player names, alerts, play, claim).
+_LIN_BODY_MARKERS = ('pn|', 'md|', 'qx|', 'vg|', 'mb|', 'sv|', 'ah|')
+_FETCH_SCHEMES = ('http', 'https', 'file', 's3', 'gs', 'ftp')
+
+
+def _first_query_value(query: str, *names: str) -> str | None:
+    if not query:
+        return None
+    qs = parse_qs(query, keep_blank_values=True)
+    for name in names:
+        values = qs.get(name)
+        if values and str(values[0]).strip():
+            return values[0]
+    return None
+
+
+def looks_like_lin_body(text: str) -> bool:
+    if not text or '|' not in text:
+        return False
+    lowered = text.lstrip().lower()
+    return any(marker in lowered for marker in _LIN_BODY_MARKERS)
+
+
+def lin_payload_from_url(url: str) -> str | None:
+    """Return the LIN document embedded in ?lin= , or None."""
+    value = _first_query_value(urlparse(url).query, 'lin')
+    if value and looks_like_lin_body(value):
+        return value
+    return None
+
+
+def lin_fetch_url_from_url(url: str) -> str | None:
+    """Return a LIN file URL from ?linurl= or from ?lin= pointing at a file."""
+    parsed = urlparse(url)
+    linurl = _first_query_value(parsed.query, 'linurl')
+    if linurl:
+        return linurl.strip()
+    value = _first_query_value(parsed.query, 'lin')
+    if not value or looks_like_lin_body(value):
+        return None
+    stripped = value.strip()
+    if stripped.lower().endswith('.lin') or stripped.startswith(('http://', 'https://', 'file://')):
+        return stripped
+    return None
+
+
+def input_suffix(url: str) -> str:
+    """File suffix of a local path or of the URL path (ignores query string)."""
+    parsed = urlparse(url)
+    if parsed.scheme in _FETCH_SCHEMES:
+        return pathlib.Path(parsed.path).suffix.lower()
+    return pathlib.Path(url).suffix.lower()
+
+
+def display_path_for_source(url: str, suffix: str) -> pathlib.Path:
+    """Filesystem-safe stem used as the boards-dict key / cache display name."""
+    if not suffix.startswith('.'):
+        suffix = '.' + suffix
+    parsed = urlparse(url)
+    if parsed.scheme in ('http', 'https'):
+        stem = pathlib.Path(parsed.path).stem or 'source'
+        return pathlib.Path(stem + suffix)
+    path = pathlib.Path(url)
+    if path.suffix.lower() != suffix:
+        return path.with_suffix(suffix)
+    return path
+
+
 def chat_input_on_submit():
     prompt = st.session_state.main_prompt_chat_input_key
     ShowDataFrameTable(st.session_state.df, query=prompt, key='user_query_main_doit_key')
@@ -307,8 +381,17 @@ def show_sql_query_change():
 
 
 def change_game_state_LIN(file_data,url,path_url,boards,df,everything_df):
-    #st.error(f"Unsupported file type: {path_url.suffix}")
-    boards = lin.loads(file_data)
+    with st.spinner("Parsing LIN file ..."):
+        try:
+            boards = lin.loads(file_data)
+        except Exception as e:
+            st.error(f"Error parsing LIN data from {url}: {e}")
+            return None
+        if len(boards) == 0:
+            st.warning(f"{url} has no boards.")
+            return None
+        if len(boards) > st.session_state.recommended_board_max:
+            st.warning(f"{url} has {len(boards)} boards. More than {st.session_state.recommended_board_max} boards may result in instability.")
     return boards
 
 
@@ -476,37 +559,57 @@ def change_game_state():
             path_url = pathlib.Path(url)
             Process_PBN(boards,df,everything_df,path_url)
         else:
-            with st.spinner(f"Loading {url} ..."):
-                try:
-                    of = fsspec.open(url, mode='r', encoding='utf-8')
-                    with of as f:
-                        match path_url.suffix.lower():
-                            case '.pbn':
-                                file_data = f.read()
-                                boards = change_game_state_PBN(file_data,url,path_url,boards,df,everything_df)
-                            case '.lin':
-                                file_data = f.read()
-                                boards = change_game_state_LIN(file_data,url,path_url,boards,df,everything_df)
-                            case '.json':
-                                file_data = f.read()
-                                json_data = json.loads(file_data)
-                                json_df = pl.DataFrame(json_data)
-                                df = flatten_df(json_df)
-                                st.dataframe(df)
-                                return
-                                #pass
-                                # b = boards.unnest('Matches')
-                                # pl.DataFrame(b['Sessions'][0].struct.unnest())
-                                #boards = change_game_state_JSON(file_data,url,path_url,boards,df,everything_df)
-                            case _:
-                                st.error(f"Unsupported file type: {path_url.suffix}")
-                                return
-                except Exception as e:
-                    st.error(f"Error opening or reading {url}: {e}")
-                    return
+            lin_text = lin_payload_from_url(url)
+            lin_remote = lin_fetch_url_from_url(url)
+            suffix = input_suffix(url)
+            if lin_text:
+                path_url = display_path_for_source(url, '.lin')
+                boards = change_game_state_LIN(lin_text, url, path_url, boards, df, everything_df)
+            elif lin_remote:
+                path_url = display_path_for_source(lin_remote, '.lin')
+                with st.spinner(f"Loading {lin_remote} ..."):
+                    try:
+                        of = fsspec.open(lin_remote, mode='r', encoding='utf-8')
+                        with of as f:
+                            file_data = f.read()
+                    except Exception as e:
+                        st.error(f"Error opening or reading {lin_remote}: {e}")
+                        return
+                boards = change_game_state_LIN(file_data, lin_remote, path_url, boards, df, everything_df)
+            else:
+                with st.spinner(f"Loading {url} ..."):
+                    try:
+                        of = fsspec.open(url, mode='r', encoding='utf-8')
+                        with of as f:
+                            match suffix:
+                                case '.pbn':
+                                    file_data = f.read()
+                                    boards = change_game_state_PBN(file_data,url,path_url,boards,df,everything_df)
+                                case '.lin':
+                                    file_data = f.read()
+                                    boards = change_game_state_LIN(file_data,url,path_url,boards,df,everything_df)
+                                case '.json':
+                                    file_data = f.read()
+                                    json_data = json.loads(file_data)
+                                    json_df = pl.DataFrame(json_data)
+                                    df = flatten_df(json_df)
+                                    st.dataframe(df)
+                                    return
+                                    #pass
+                                    # b = boards.unnest('Matches')
+                                    # pl.DataFrame(b['Sessions'][0].struct.unnest())
+                                    #boards = change_game_state_JSON(file_data,url,path_url,boards,df,everything_df)
+                                case _:
+                                    if suffix in ('.html', '.htm', '') and ('lin=' in url.lower() or 'linurl=' in url.lower()):
+                                        st.error("Could not find LIN data in the URL. For BBO Hand Viewer use ?lin=<lin body> or ?linurl=<lin file url>.")
+                                    else:
+                                        st.error(f"Unsupported file type: {suffix or path_url.suffix}. Use a .pbn/.lin file or a BBO Hand Viewer URL with ?lin= or ?linurl=.")
+                                    return
+                    except Exception as e:
+                        st.error(f"Error opening or reading {url}: {e}")
+                        return
         if boards is None:
-            st.error(f"Unimplemented file type: {path_url.suffix}")
-            return # not yet implemented
+            return
 
         st.session_state.df = Process_PBN(path_url,boards,df,everything_df)
         st.session_state.df = filter_dataframe(st.session_state.df, st.session_state.group_id, st.session_state.session_id, st.session_state.player_id, st.session_state.partner_id)
@@ -679,14 +782,14 @@ def create_sidebar():
     #default_url = 'GIB-Thorvald-8638-2024-08-23.pbn'
     if 'create_sidebar_text_input_url_key' not in st.session_state:
         st.session_state.create_sidebar_text_input_url_key = default_url
-    st.sidebar.text_input('Enter URL:', on_change=change_game_state, key='create_sidebar_text_input_url_key', help='Enter a URL or pathless local file name.') # , on_change=change_game_state
+    st.sidebar.text_input('Enter URL:', on_change=change_game_state, key='create_sidebar_text_input_url_key', help='PBN or LIN file (URL or local name), or a BBO Hand Viewer link with ?lin= or ?linurl=.') # , on_change=change_game_state
     # using css to change button color for the entire button width. The color was choosen to match the the restrictive text colorizer (:green-background[Go]) used in st.info() below.
     css = """section[data-testid="stSidebar"] div.stButton button {
         background-color: rgba(33, 195, 84, 0.1);
         width: 50px;
         }"""
     st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
-    st.sidebar.button('Go', on_click=change_game_state, key='create_sidebar_go_button_key', help='Load PBN data from URL.')
+    st.sidebar.button('Go', on_click=change_game_state, key='create_sidebar_go_button_key', help='Load PBN or LIN data from the URL.')
 
     if st.session_state.player_id is None:
         return
@@ -852,7 +955,7 @@ def initialize_website_specific():
     #streamlit_chat.message(
     #    f"To start our postmortem chat, I'll need an {st.session_state.game_name} player number. I'll use it to find player's latest {st.session_state.game_name} club game. It will be the subject of our chat.", key='intro_message_3', logo=st.session_state.assistant_logo)
     streamlit_chat.message(
-        f"To start our postmortem chat, I'll need a PBN file or URL. It will be the subject of our chat.", key='intro_message_3', logo=st.session_state.assistant_logo)
+        f"To start our postmortem chat, I'll need a PBN file, LIN file, or BBO Hand Viewer URL. It will be the subject of our chat.", key='intro_message_3', logo=st.session_state.assistant_logo)
     #streamlit_chat.message(
     #    f"Enter any {st.session_state.game_name} player number in the left sidebar.", key='intro_message_4', logo=st.session_state.assistant_logo)
     streamlit_chat.message(
