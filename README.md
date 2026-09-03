@@ -1,16 +1,38 @@
 # Calculate_PBN_Results
-Project to calculate bridge game statistics from a PBN file. Contains a standalone example notebook which creates dataframes from pbn files. Dataframes are augmented with par, double dummy (DD), single dummy (SD) probabilities, expected values (Exp), and best contracts (max expected value contract). Compatible with jupyter and vscode notebooks. Minimal documentation and support provided. Assumes programmer who is familiar with the game of bridge, github, jupyter/vscode notebook and python.
 
-# Overview
-1. Read a pbn file (local file).
-2. Create a df from pbn file.
-3. Augment df with par, double dummy, single dummy probabilities, expected values, best contract (max expected value contract).
-4. Do some simple explorations of the augmented df.
+Bridge game statistics from a PBN or LIN file (including BBO Hand Viewer `?lin=` / `?linurl=` URLs). The same library path is used by Streamlit, the REST API, and MortyBridgeBot MCP.
 
-# Installation:
-1. git clone https://github.com/BSalita/Calculate_PBN_Results
-2. pip install -U -r requirements.txt
-3. streamlit run CalculatePBNResults_Streamlit.py
+## Architecture
 
-# Dependencies:
-See requirements.txt
+```
+Streamlit UI  (port 8503)     POST /pbn/generate or sidebar URL
+        │
+        ▼
+Library
+  pbn_postmortem_create.py    load PBN/LIN, augment, cache
+  pbn_postmortem_service.py   list/load/SQL/schema over cache/
+        │
+        ▼
+REST API  (port 8520)         pbn_postmortem_api_server.py
+        │
+        ▼
+MortyBridgeBot MCP (port 8518)  HTTP client only — never imports this library
+```
+
+Augmented dataframes are stored as `cache/df-{key}.parquet` with a `df-{key}.json` sidecar for the source URL.
+
+## Run
+
+```powershell
+pip install -U -r requirements.txt
+streamlit run calculate_pbn_results_streamlit.py
+python pbn_postmortem_api_server.py
+```
+
+API: `http://127.0.0.1:8520/health`. MCP tools live in MortyBridgeBot (`PBN_POSTMORTEM_API_BASE_URL`, default `http://127.0.0.1:8520`).
+
+## Tests
+
+```powershell
+python -m unittest test_pbn_postmortem_service.py test_pbn_postmortem_create.py
+```

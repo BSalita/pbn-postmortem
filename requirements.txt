@@ -1,5 +1,7 @@
 # for app.py
 streamlit
+fastapi
+uvicorn
 streamlit-extras
 streamlit-chat
 stqdm

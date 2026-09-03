@@ -9,6 +9,7 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 
+import pbn_postmortem_create as create
 import pbn_postmortem_service as service
 
 
@@ -19,6 +20,12 @@ class SqlRequest(BaseModel):
     sql: str
     key: Optional[str] = None
     limit: int = 500
+
+
+class GenerateRequest(BaseModel):
+    url: str
+    sd_samples: int = 10
+    force: bool = False
 
 
 def _run(callable_, /, *args, **kwargs):
@@ -72,6 +79,21 @@ def schema(
 ) -> dict:
     frame, _meta = _run(service.load_postmortem, key)
     return _run(service.schema_columns, frame, pattern=pattern, limit=limit)
+
+
+@app.post("/pbn/generate")
+def generate(request: GenerateRequest) -> dict:
+    try:
+        _df, meta = create.generate_postmortem(
+            request.url,
+            sd_samples=request.sd_samples,
+            force=request.force,
+        )
+    except (FileNotFoundError, KeyError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return meta
 
 
 if __name__ == "__main__":

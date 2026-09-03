@@ -17,11 +17,13 @@ Env:
   PBN_POSTMORTEM_CACHE_DIR  cache directory (default ./cache next to this file)
 """
 
+import hashlib
 import json
 import os
 import pathlib
 import re
 import threading
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import duckdb
@@ -87,11 +89,33 @@ def dataset_info() -> Dict[str, Any]:
         "cached_postmortems": len(cached),
         "keys": [c["key"] for c in cached],
         "note": (
-            "Augmented dataframes are produced on demand by the Streamlit app "
-            "(https://pbn.postmortem.chat/?url=<PBN url>); this service reads "
-            "its parquet cache."
+            "Augmented dataframes are produced by POST /pbn/generate "
+            "(PBN, LIN, or a BBO Hand Viewer ?lin= / ?linurl= URL) or by the "
+            "Streamlit app (https://pbn.postmortem.chat/?url=...). This service "
+            "reads the parquet cache."
         ),
     }
+
+
+def url_to_cache_key(url: str) -> str:
+    """Stable, filesystem-safe cache key: sanitized stem plus a short hash of
+    the full URL so distinct URLs with the same filename do not collide."""
+    stem = re.sub(r'[^A-Za-z0-9._]+', '_', pathlib.Path(url).stem).strip('_')[:60] or 'pbn'
+    return f"{stem}-{hashlib.md5(url.encode('utf-8')).hexdigest()[:8]}"
+
+
+def save_augmented_df_to_cache(df: Any, url: str) -> pathlib.Path:
+    """Persist the augmented dataframe. A sidecar df-{key}.json records the
+    source URL since it cannot be reconstructed from the sanitized filename."""
+    CACHE_DIR.mkdir(exist_ok=True)
+    key = url_to_cache_key(url)
+    cache_file = CACHE_DIR / f'df-{key}.parquet'
+    df.write_parquet(cache_file)
+    meta = {'url': url, 'cached_at': datetime.now(timezone.utc).isoformat()}
+    (CACHE_DIR / f'df-{key}.json').write_text(json.dumps(meta), encoding='utf-8')
+    with _df_cache_lock:
+        _df_cache.clear()
+    return cache_file
 
 
 def _resolve_cache_file(key: Optional[str] = None) -> Tuple[pathlib.Path, Dict[str, Any]]:

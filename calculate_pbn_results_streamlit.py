@@ -24,7 +24,6 @@ import json
 import pickle
 from collections import defaultdict
 from datetime import datetime, timezone
-from urllib.parse import parse_qs, urlparse
 import sys
 import os
 import platform
@@ -87,6 +86,8 @@ from mlBridge import mlBridgeEndplayLib
 from mlBridge.mlBridgeAugmentLib import (
     AllAugmentations,
 )#import mlBridgeBiddingLib
+import pbn_postmortem_create as pbn_create
+import pbn_postmortem_service as pbn_service
 
 
 
@@ -290,79 +291,6 @@ def get_url_protocol(path):
     return options['protocol']
 
 
-# BBO Hand Viewer and similar share links put the deal in ?lin= (encoded LIN
-# body) or ?linurl= (URL of a .lin file). Parse the query string; do not fetch
-# the HTML page. endplay.parsers.lin.loads() is the right parser: the rest of
-# this app already consumes endplay Board objects (same as PBN). A LIN→PBN
-# round-trip would only serialize and re-parse those boards and can drop LIN
-# extras (player names, alerts, play, claim).
-_LIN_BODY_MARKERS = ('pn|', 'md|', 'qx|', 'vg|', 'mb|', 'sv|', 'ah|')
-_FETCH_SCHEMES = ('http', 'https', 'file', 's3', 'gs', 'ftp')
-
-
-def _first_query_value(query: str, *names: str) -> str | None:
-    if not query:
-        return None
-    qs = parse_qs(query, keep_blank_values=True)
-    for name in names:
-        values = qs.get(name)
-        if values and str(values[0]).strip():
-            return values[0]
-    return None
-
-
-def looks_like_lin_body(text: str) -> bool:
-    if not text or '|' not in text:
-        return False
-    lowered = text.lstrip().lower()
-    return any(marker in lowered for marker in _LIN_BODY_MARKERS)
-
-
-def lin_payload_from_url(url: str) -> str | None:
-    """Return the LIN document embedded in ?lin= , or None."""
-    value = _first_query_value(urlparse(url).query, 'lin')
-    if value and looks_like_lin_body(value):
-        return value
-    return None
-
-
-def lin_fetch_url_from_url(url: str) -> str | None:
-    """Return a LIN file URL from ?linurl= or from ?lin= pointing at a file."""
-    parsed = urlparse(url)
-    linurl = _first_query_value(parsed.query, 'linurl')
-    if linurl:
-        return linurl.strip()
-    value = _first_query_value(parsed.query, 'lin')
-    if not value or looks_like_lin_body(value):
-        return None
-    stripped = value.strip()
-    if stripped.lower().endswith('.lin') or stripped.startswith(('http://', 'https://', 'file://')):
-        return stripped
-    return None
-
-
-def input_suffix(url: str) -> str:
-    """File suffix of a local path or of the URL path (ignores query string)."""
-    parsed = urlparse(url)
-    if parsed.scheme in _FETCH_SCHEMES:
-        return pathlib.Path(parsed.path).suffix.lower()
-    return pathlib.Path(url).suffix.lower()
-
-
-def display_path_for_source(url: str, suffix: str) -> pathlib.Path:
-    """Filesystem-safe stem used as the boards-dict key / cache display name."""
-    if not suffix.startswith('.'):
-        suffix = '.' + suffix
-    parsed = urlparse(url)
-    if parsed.scheme in ('http', 'https'):
-        stem = pathlib.Path(parsed.path).stem or 'source'
-        return pathlib.Path(stem + suffix)
-    path = pathlib.Path(url)
-    if path.suffix.lower() != suffix:
-        return path.with_suffix(suffix)
-    return path
-
-
 def chat_input_on_submit():
     prompt = st.session_state.main_prompt_chat_input_key
     ShowDataFrameTable(st.session_state.df, query=prompt, key='user_query_main_doit_key')
@@ -466,32 +394,12 @@ def change_game_state_PBN(file_data,url,path_url,boards,df,everything_df):
 
 
 def url_to_cache_key(url: str) -> str:
-    """Stable, filesystem-safe cache key for a PBN source URL: sanitized stem
-    plus a short hash of the full URL (so distinct URLs with the same filename
-    do not collide). Dashes are excluded from the stem so the key layout stays
-    unambiguous."""
-    import hashlib
-    import re
-    stem = re.sub(r'[^A-Za-z0-9._]+', '_', pathlib.Path(url).stem).strip('_')[:60] or 'pbn'
-    return f"{stem}-{hashlib.md5(url.encode('utf-8')).hexdigest()[:8]}"
+    return pbn_service.url_to_cache_key(url)
 
 
 def save_augmented_df_to_cache(df: Any, url: str) -> None:
-    """Persist the augmented dataframe for MortyBridgeBot,
-    mirroring the postmortem apps' parquet
-    caches. A sidecar df-{key}.json records the source URL since it cannot be
-    reconstructed from the sanitized filename. Write-only by design: the live
-    app always recomputes."""
-    # stdlib json: the module-level 'json' name is shadowed by endplay.parsers.json.
-    import json as _json
     try:
-        cache_dir = pathlib.Path('cache')
-        cache_dir.mkdir(exist_ok=True)
-        key = url_to_cache_key(url)
-        cache_file = cache_dir / f'df-{key}.parquet'
-        df.write_parquet(cache_file)
-        meta = {'url': url, 'cached_at': datetime.now(timezone.utc).isoformat()}
-        (cache_dir / f'df-{key}.json').write_text(_json.dumps(meta), encoding='utf-8')
+        cache_file = pbn_service.save_augmented_df_to_cache(df, url)
         print(f"Saved postmortem cache {cache_file}: shape:{df.shape} size:{cache_file.stat().st_size}")
     except Exception as e:
         print(f"Unable to save postmortem cache for {url}: {e}")
@@ -559,55 +467,28 @@ def change_game_state():
             path_url = pathlib.Path(url)
             Process_PBN(boards,df,everything_df,path_url)
         else:
-            lin_text = lin_payload_from_url(url)
-            lin_remote = lin_fetch_url_from_url(url)
-            suffix = input_suffix(url)
-            if lin_text:
-                path_url = display_path_for_source(url, '.lin')
-                boards = change_game_state_LIN(lin_text, url, path_url, boards, df, everything_df)
-            elif lin_remote:
-                path_url = display_path_for_source(lin_remote, '.lin')
-                with st.spinner(f"Loading {lin_remote} ..."):
-                    try:
-                        of = fsspec.open(lin_remote, mode='r', encoding='utf-8')
-                        with of as f:
-                            file_data = f.read()
-                    except Exception as e:
-                        st.error(f"Error opening or reading {lin_remote}: {e}")
-                        return
-                boards = change_game_state_LIN(file_data, lin_remote, path_url, boards, df, everything_df)
-            else:
+            if pbn_create.input_suffix(url) == '.json':
                 with st.spinner(f"Loading {url} ..."):
                     try:
                         of = fsspec.open(url, mode='r', encoding='utf-8')
                         with of as f:
-                            match suffix:
-                                case '.pbn':
-                                    file_data = f.read()
-                                    boards = change_game_state_PBN(file_data,url,path_url,boards,df,everything_df)
-                                case '.lin':
-                                    file_data = f.read()
-                                    boards = change_game_state_LIN(file_data,url,path_url,boards,df,everything_df)
-                                case '.json':
-                                    file_data = f.read()
-                                    json_data = json.loads(file_data)
-                                    json_df = pl.DataFrame(json_data)
-                                    df = flatten_df(json_df)
-                                    st.dataframe(df)
-                                    return
-                                    #pass
-                                    # b = boards.unnest('Matches')
-                                    # pl.DataFrame(b['Sessions'][0].struct.unnest())
-                                    #boards = change_game_state_JSON(file_data,url,path_url,boards,df,everything_df)
-                                case _:
-                                    if suffix in ('.html', '.htm', '') and ('lin=' in url.lower() or 'linurl=' in url.lower()):
-                                        st.error("Could not find LIN data in the URL. For BBO Hand Viewer use ?lin=<lin body> or ?linurl=<lin file url>.")
-                                    else:
-                                        st.error(f"Unsupported file type: {suffix or path_url.suffix}. Use a .pbn/.lin file or a BBO Hand Viewer URL with ?lin= or ?linurl=.")
-                                    return
+                            file_data = f.read()
                     except Exception as e:
                         st.error(f"Error opening or reading {url}: {e}")
                         return
+                json_data = json.loads(file_data)
+                json_df = pl.DataFrame(json_data)
+                df = flatten_df(json_df)
+                st.dataframe(df)
+                return
+            with st.spinner(f"Loading {url} ..."):
+                try:
+                    boards, path_url, _kind = pbn_create.load_boards_from_source(url)
+                except Exception as e:
+                    st.error(str(e))
+                    return
+                if len(boards) > st.session_state.recommended_board_max:
+                    st.warning(f"{url} has {len(boards)} boards. More than {st.session_state.recommended_board_max} boards may result in instability.")
         if boards is None:
             return
 
@@ -630,8 +511,12 @@ def perform_hand_augmentations_queue(self, hand_augmentation_work):
 
 def augment_df(df):
     with st.spinner('Augmenting data...'):
-        augmenter = AllAugmentations(df,None,sd_productions=st.session_state.single_dummy_sample_count,progress=st.progress(0),lock_func=perform_hand_augmentations_queue)
-        df, hrs_cache_df = augmenter.perform_all_augmentations()
+        df = pbn_create.augment_boards_df(
+            df,
+            sd_samples=st.session_state.single_dummy_sample_count,
+            progress=st.progress(0),
+            lock_func=perform_hand_augmentations_queue,
+        )
     # with st.spinner('Creating hand data...'):
     #     augmenter = HandAugmenter(df,{},sd_productions=st.session_state.single_dummy_sample_count,progress=st.progress(0),lock_func=perform_hand_augmentations_queue)
     #     df = augmenter.perform_hand_augmentations()
@@ -652,11 +537,8 @@ def augment_df(df):
 
 def Process_PBN(path_url,boards,df,everything_df,hrs_d={}):
     with st.spinner("Creating dataframe ..."):
-        df = mlBridgeEndplayLib.endplay_boards_to_df({path_url:boards})
+        df = pbn_create.boards_to_mlbridge_df(boards, path_url)
         st.dataframe(df) # todo: temp!!!!!!!!!!!
-        df = mlBridgeEndplayLib.convert_endplay_df_to_mlBridge_df(df)
-        #st.write("After endplay_boards_to_df")
-        #ShowDataFrameTable(df, key=f"process_endplay_boards_to_df_key")
     pmb = PBNResultsCalculator()
     df = augment_df(df)
     #st.write("After Perform_DD_SD_Augmentations")
