@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 import io
+import json
 import os
+import pathlib
+import subprocess
+import sys
+import tempfile
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -52,11 +57,54 @@ def _run(callable_, /, *args, **kwargs):
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+_GENERATE_TIMEOUT_S = 600
+
+
+def _generate_isolated(
+    url: str, sd_samples: int = 10, force: bool = False
+) -> dict:
+    """Run generate in a child process so a native crash cannot kill uvicorn."""
+    here = pathlib.Path(__file__).resolve().parent
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as handle:
+        meta_path = pathlib.Path(handle.name)
+    try:
+        command = [
+            sys.executable,
+            str(here / "pbn_postmortem_create.py"),
+            url,
+            "--sd-samples",
+            str(sd_samples),
+            "--meta-out",
+            str(meta_path),
+        ]
+        if force:
+            command.append("--force")
+        try:
+            proc = subprocess.run(
+                command,
+                cwd=str(here),
+                capture_output=True,
+                text=True,
+                timeout=_GENERATE_TIMEOUT_S,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(
+                f"Generate timed out after {_GENERATE_TIMEOUT_S}s for {url}"
+            ) from exc
+        if proc.returncode != 0:
+            detail = (proc.stderr or proc.stdout or f"exit {proc.returncode}").strip()
+            raise RuntimeError(detail[-4000:] if len(detail) > 4000 else detail)
+        return json.loads(meta_path.read_text(encoding="utf-8"))
+    finally:
+        meta_path.unlink(missing_ok=True)
+
+
 def _frame(key: Optional[str] = None, url: Optional[str] = None):
     """Load a cached game, or generate when key/url is a PBN/LIN/BBO source."""
     source = create.source_url_from_key_or_url(key, url)
     if source:
-        return create.generate_postmortem(source)
+        meta = _generate_isolated(source)
+        return service.load_postmortem(meta.get("key"))
     return service.load_postmortem((key or url or None))
 
 
@@ -137,7 +185,7 @@ def parquet(key: Optional[str] = Query(None)) -> Response:
 @app.post("/pbn/generate")
 def generate(request: GenerateRequest) -> dict:
     try:
-        _df, meta = create.generate_postmortem(
+        return _generate_isolated(
             request.url,
             sd_samples=request.sd_samples,
             force=request.force,
@@ -146,7 +194,6 @@ def generate(request: GenerateRequest) -> dict:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-    return meta
 
 
 if __name__ == "__main__":
@@ -157,4 +204,4 @@ if __name__ == "__main__":
         f"[postmortem-pbn-api] start {datetime.now(timezone.utc).isoformat()} port={port}",
         flush=True,
     )
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run(app, host="0.0.0.0", port=port, timeout_keep_alive=600)

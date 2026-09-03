@@ -6,6 +6,7 @@ generate through POST /pbn/generate.
 
 from __future__ import annotations
 
+import json
 import pathlib
 import sys
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -304,3 +305,24 @@ def generate_postmortem(
     if warning:
         meta['warning'] = warning
     return df, meta
+
+
+def _cli(argv: Optional[List[str]] = None) -> int:
+    """Write generate() meta JSON to --meta-out. Used by the API subprocess."""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Generate a postmortem-pbn cache entry.")
+    parser.add_argument("url")
+    parser.add_argument("--sd-samples", type=int, default=DEFAULT_SD_SAMPLES)
+    parser.add_argument("--force", action="store_true")
+    parser.add_argument("--meta-out", required=True)
+    args = parser.parse_args(argv)
+    _df, meta = generate_postmortem(
+        args.url, sd_samples=args.sd_samples, force=args.force
+    )
+    pathlib.Path(args.meta_out).write_text(json.dumps(meta), encoding="utf-8")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_cli())
