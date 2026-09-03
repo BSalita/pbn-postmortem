@@ -1,6 +1,6 @@
-"""Headless access to cached Calculate-PBN augmented dataframes.
+"""Headless access to cached postmortem-pbn augmented dataframes.
 
-The Streamlit app (calculate_pbn_results_streamlit.py) persists each fully
+The Streamlit app (postmortem_pbn_streamlit.py) persists each fully
 augmented board-results dataframe to cache/df-{key}.parquet right after
 augmentation, where key is a sanitized stem + short hash of the source PBN
 URL (see url_to_cache_key / save_augmented_df_to_cache in the app). A sidecar
@@ -89,10 +89,10 @@ def dataset_info() -> Dict[str, Any]:
         "cached_postmortems": len(cached),
         "keys": [c["key"] for c in cached],
         "note": (
-            "Augmented dataframes are produced by POST /pbn/generate "
-            "(PBN, LIN, or a BBO Hand Viewer ?lin= / ?linurl= URL) or by the "
-            "Streamlit app (https://pbn.postmortem.chat/?url=...). This service "
-            "reads the parquet cache."
+            "Given a BBO Hand Viewer (?lin= / ?linurl=), linfetch, PBN, or LIN "
+            "URL, POST it as url to /pbn/boards, /pbn/sql, or /pbn/schema "
+            "(or POST /pbn/generate first). Do not fetch the Hand Viewer HTML. "
+            "This service reads the parquet cache."
         ),
     }
 
@@ -122,8 +122,8 @@ def _resolve_cache_file(key: Optional[str] = None) -> Tuple[pathlib.Path, Dict[s
     cached = list_cached_postmortems()
     if not cached:
         raise FileNotFoundError(
-            "No cached PBN postmortem. Generate one first by loading "
-            "https://pbn.postmortem.chat/?url=<PBN url>."
+            "No cached postmortem-pbn game. Generate one first with "
+            "POST /pbn/generate or https://pbn.postmortem.chat/?url=<PBN or LIN url>."
         )
     if key is None:
         entry = cached[0]  # newest cache file
@@ -132,7 +132,7 @@ def _resolve_cache_file(key: Optional[str] = None) -> Tuple[pathlib.Path, Dict[s
         entry = next((c for c in cached if c["key"] == key or c["url"] == key), None)
         if entry is None:
             raise FileNotFoundError(
-                f"No cached PBN postmortem for key or URL {key!r}. "
+                f"No cached postmortem-pbn game for key or URL {key!r}. "
                 f"Cached keys: {[c['key'] for c in cached]}"
             )
     return CACHE_DIR / entry["file"], entry

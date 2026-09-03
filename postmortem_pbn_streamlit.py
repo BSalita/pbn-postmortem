@@ -1,9 +1,9 @@
 ﻿"""
-PBN Results Calculator Streamlit Application
+postmortem-pbn Streamlit application
 """
 
 # streamlit program to display Bridge game deal statistics from a PBN file.
-# Invoke from system prompt using: streamlit run CalculatePBNResults_Streamlit.py
+# Invoke from system prompt using: streamlit run postmortem_pbn_streamlit.py
 
 # todo:
 # 1. looks like a bug has crept in when using DDS_Camrose24_1- BENCAM22 v WBridge5. Looks like X (double) is being parsed incorrectly.
@@ -38,10 +38,6 @@ import pandas as pd
 #import torch
 
 import endplay # for __version__
-from endplay.parsers import pbn, lin, json
-from endplay.types import Deal, Contract, Denom, Player, Penalty, Vul
-from endplay.dds import par, calc_all_tables
-from endplay.dealer import generate_deals
 
 _APP_DIR = pathlib.Path(__file__).resolve().parent
 _REQUIRED_LIBS = ('mlBridge', 'streamlitlib')
@@ -82,12 +78,8 @@ from typing import Any
 import streamlitlib
 from mlBridge.mlBridgePostmortemLib import PostmortemBase
 from mlBridge.mlBridgeLib import cast_numeric_display_columns
-from mlBridge import mlBridgeEndplayLib
-from mlBridge.mlBridgeAugmentLib import (
-    AllAugmentations,
-)#import mlBridgeBiddingLib
-import pbn_postmortem_create as pbn_create
-import pbn_postmortem_service as pbn_service
+#import mlBridgeBiddingLib
+import pbn_postmortem_api_client as pbn_api
 
 
 
@@ -298,6 +290,7 @@ def chat_input_on_submit():
 
 def sample_count_on_change():
     st.session_state.single_dummy_sample_count = st.session_state.single_dummy_sample_count_number_input
+    st.session_state._pbn_generate_force = True
     sync_url_params_from_state()
     change_game_state()
 
@@ -306,21 +299,6 @@ def show_sql_query_change():
     # toggle whether to show sql query
     st.session_state.show_sql_query = st.session_state.sql_query_checkbox
     sync_url_params_from_state()
-
-
-def change_game_state_LIN(file_data,url,path_url,boards,df,everything_df):
-    with st.spinner("Parsing LIN file ..."):
-        try:
-            boards = lin.loads(file_data)
-        except Exception as e:
-            st.error(f"Error parsing LIN data from {url}: {e}")
-            return None
-        if len(boards) == 0:
-            st.warning(f"{url} has no boards.")
-            return None
-        if len(boards) > st.session_state.recommended_board_max:
-            st.warning(f"{url} has {len(boards)} boards. More than {st.session_state.recommended_board_max} boards may result in instability.")
-    return boards
 
 
 # Written mostly by chatgpt.
@@ -369,42 +347,6 @@ def flatten_df(df):
     return df
 
 
-def change_game_state_JSON(file_data,url,path_url,boards,df,everything_df):
-    st.error(f"Unsupported file type: {path_url.suffix}")
-    return None
-    boards = json.loads(file_data)
-    return boards
-
-
-def change_game_state_PBN(file_data,url,path_url,boards,df,everything_df):
-    if boards is None and df is None:
-        with st.spinner("Parsing PBN file ..."):
-            boards = pbn.loads(file_data)
-            if len(boards) == 0:
-                st.warning(f"{url} has no boards.")
-                return
-    if st.session_state.save_intermediate_files:
-        boards_url = pathlib.Path(path_url.stem+'_boards').with_suffix('.pkl')
-        boards_path = pathlib.Path(boards_url)
-        with st.spinner(f"Saving {boards_url} file ..."):
-            with open(boards_path, 'wb') as f:
-                pickle.dump(boards, f)
-            st.caption(f"Saved {boards_url}. File length is {boards_path.stat().st_size} bytes.")
-    return boards
-
-
-def url_to_cache_key(url: str) -> str:
-    return pbn_service.url_to_cache_key(url)
-
-
-def save_augmented_df_to_cache(df: Any, url: str) -> None:
-    try:
-        cache_file = pbn_service.save_augmented_df_to_cache(df, url)
-        print(f"Saved postmortem cache {cache_file}: shape:{df.shape} size:{cache_file.stat().st_size}")
-    except Exception as e:
-        print(f"Unable to save postmortem cache for {url}: {e}")
-
-
 def change_game_state():
 
     st.markdown('<div style="height: 50px;"><a name="top-of-report"></a></div>', unsafe_allow_html=True)
@@ -432,161 +374,44 @@ def change_game_state():
             return
         sync_url_params_from_state()
 
-        path_url = pathlib.Path(url)
-        boards = None
-        df = None
-        everything_df = None
-        # todo: only local intermediate files implemented. is it possible to access them using a url? it gets complicated.
-        if url.endswith('_boards.pkl'):
-            if not path_url.exists():
-                st.warning(f"{url} does not exist.")
-                return
-            with st.spinner(f"Loading {url} ..."):
-                with open(path_url, 'rb') as f:
-                    boards = pickle.load(f)
-            url = url.replace('_boards.pkl','')
-            path_url = pathlib.Path(url)
-            Process_PBN(boards,df,everything_df,path_url)
-        elif url.endswith('_df.pkl'):
-            if not path_url.exists():
-                st.warning(f"{url} does not exist.")
-                return
-            with st.spinner(f"Loading {url} ..."):
-                with open(path_url, 'rb') as f:
-                    df = pickle.load(f)
-            url = url.replace('_df.pkl','')
-            path_url = pathlib.Path(url)
-            Process_PBN(boards,df,everything_df,path_url)
-        elif url.endswith('_everythingdf.parquet'):
-            if not path_url.exists():
-                st.warning(f"{url} does not exist.")
-                return
-            with st.spinner(f"Loading {url} ..."):
-                everything_df = pl.read_parquet(path_url)
-            url = url.replace('_everythingdf.parquet','')
-            path_url = pathlib.Path(url)
-            Process_PBN(boards,df,everything_df,path_url)
-        else:
-            if pbn_create.input_suffix(url) == '.json':
-                with st.spinner(f"Loading {url} ..."):
-                    try:
-                        of = fsspec.open(url, mode='r', encoding='utf-8')
-                        with of as f:
-                            file_data = f.read()
-                    except Exception as e:
-                        st.error(f"Error opening or reading {url}: {e}")
-                        return
-                json_data = json.loads(file_data)
-                json_df = pl.DataFrame(json_data)
-                df = flatten_df(json_df)
-                st.dataframe(df)
-                return
+        path = url.split('?', 1)[0]
+        if path.lower().endswith('.json'):
             with st.spinner(f"Loading {url} ..."):
                 try:
-                    boards, path_url, _kind = pbn_create.load_boards_from_source(url)
+                    of = fsspec.open(url, mode='r', encoding='utf-8')
+                    with of as f:
+                        file_data = f.read()
                 except Exception as e:
-                    st.error(str(e))
+                    st.error(f"Error opening or reading {url}: {e}")
                     return
-                if len(boards) > st.session_state.recommended_board_max:
-                    st.warning(f"{url} has {len(boards)} boards. More than {st.session_state.recommended_board_max} boards may result in instability.")
-        if boards is None:
+            json_data = json.loads(file_data)
+            json_df = pl.DataFrame(json_data)
+            df = flatten_df(json_df)
+            st.dataframe(df)
             return
 
-        st.session_state.df = Process_PBN(path_url,boards,df,everything_df)
+        force = bool(st.session_state.pop('_pbn_generate_force', False))
+        try:
+            meta = pbn_api.generate(
+                url,
+                sd_samples=st.session_state.single_dummy_sample_count,
+                force=force,
+            )
+            if meta.get('warning'):
+                st.warning(meta['warning'])
+            st.session_state.df = pbn_api.postmortem_dataframe(meta.get('key'))
+        except pbn_api.PbnApiClientError as e:
+            st.error(str(e))
+            return
+
         st.session_state.df = filter_dataframe(st.session_state.df, st.session_state.group_id, st.session_state.session_id, st.session_state.player_id, st.session_state.partner_id)
         assert st.session_state.df.select(pl.col(pl.Object)).is_empty(), f"Found Object columns: {[col for col, dtype in st.session_state.df.schema.items() if dtype == pl.Object]}"
-        save_augmented_df_to_cache(st.session_state.df, url)
-        
+
         # Register dataframe with session-specific connection
         con = get_session_duckdb_connection()
         con.register(st.session_state.con_register_name, st.session_state.df) # ugh, df['scores_l'] must be previously dropped otherwise this hangs. reason unknown.
 
     return
-
-
-# this version of perform_hand_augmentations_locked() uses self for class compatibility, older versions did not.
-def perform_hand_augmentations_queue(self, hand_augmentation_work):
-    return streamlitlib.perform_queued_work(self, hand_augmentation_work, "Hand analysis")
-
-
-def augment_df(df):
-    with st.spinner('Augmenting data...'):
-        df = pbn_create.augment_boards_df(
-            df,
-            sd_samples=st.session_state.single_dummy_sample_count,
-            progress=st.progress(0),
-            lock_func=perform_hand_augmentations_queue,
-        )
-    # with st.spinner('Creating hand data...'):
-    #     augmenter = HandAugmenter(df,{},sd_productions=st.session_state.single_dummy_sample_count,progress=st.progress(0),lock_func=perform_hand_augmentations_queue)
-    #     df = augmenter.perform_hand_augmentations()
-    # with st.spinner('Augmenting with result data...'):
-    #     augmenter = ResultAugmenter(df,{})
-    #     df = augmenter.perform_result_augmentations()
-    # with st.spinner('Augmenting with contract data...'):
-    #     augmenter = ScoreAugmenter(df)
-    #     df = augmenter.perform_score_augmentations()
-    # with st.spinner('Augmenting with DD and SD data...'):
-    #     augmenter = DDSDAugmenter(df)
-    #     df = augmenter.perform_dd_sd_augmentations()
-    # with st.spinner('Augmenting with matchpoints and percentages data...'):
-    #     augmenter = MatchPointAugmenter(df)
-    #     df = augmenter.perform_matchpoint_augmentations()
-    return df
-
-
-def Process_PBN(path_url,boards,df,everything_df,hrs_d={}):
-    with st.spinner("Creating dataframe ..."):
-        df = pbn_create.boards_to_mlbridge_df(boards, path_url)
-        st.dataframe(df) # todo: temp!!!!!!!!!!!
-    pmb = PBNResultsCalculator()
-    df = augment_df(df)
-    #st.write("After Perform_DD_SD_Augmentations")
-    #ShowDataFrameTable(df, key=f"Perform_DD_SD_Augmentations_key")
-    # with st.spinner("Creating Bidding Tables. Very slow. Takes 12 minutes ..."): # todo: make faster. update message.
-    #     expression_evaluator = mlBridgeBiddingLib.ExpressionEvaluator()
-    #     df = expression_evaluator.create_bidding_table_df(df,st.session_state.bt_prior_bids_to_bt_entry_d)
-    # with st.spinner("Creating Ai Auctions ..."):
-    #     finder = mlBridgeBiddingLib.AuctionFinder(st.session_state.bt_prior_bids_to_bt_entry_d,st.session_state.bt_bid_to_next_bids_d,st.session_state.exprStr_to_exprID_d)
-    #     st.session_state.exprs_dfs_d = finder.augment_df_with_bidding_info(df)
-    #     assert len(st.session_state.exprs_dfs_d) == len(df)
-    #     for k,expr_df in st.session_state.exprs_dfs_d.items():
-    #         print(k,expr_df)
-    #         break
-
-    # if save_intermediate_files:
-    #     # save df as pickle because it contains object columns. later, they're dropped when creating pbn_df.
-    #     df_url = pathlib.Path(path_url.stem+'_df').with_suffix('.pkl')
-    #     df_path = pathlib.Path(df_url)
-    #     with st.spinner(f"Saving {df_url} file ..."):
-    #         with open(df_path, 'wb') as f:
-    #             pickle.dump(df, f)
-    #     st.caption(f"Saved {df_url}. File length is {df_path.stat().st_size} bytes.")
-
-    # exclude_columns = ['deal','_dealer','_vul','auction','play','_contract'] # drop obsolete columns or object data types. some of these may have been dropped earlier
-    # column_order = ['Date','Scoring','Board','Room','Deal','North','East','South','West','Dealer','Vul','Auction','Contract','Play','Score','Claimed','Event','Site','BCFlags']
-    # column_order = [c for c in column_order if c in df.columns]
-    # # add any not-well-known columns but prepend with underscore to avoid conflicts
-    # for c in df.columns:
-    #     if c not in column_order:
-    #         if c not in exclude_columns:
-    #             custom_c = 'Custom_'+c
-    #             df = df.rename({c:custom_c})
-    #             column_order.append(custom_c)
-    # df = df.select(pl.col(column_order))
-
-    # if save_intermediate_files:
-    #     everythingdf_url = pathlib.Path(path_url.stem+'_everythingdf').with_suffix('.parquet')
-    #     everythingdf_path = pathlib.Path(everythingdf_url)
-    #     with st.spinner(f"Saving {everythingdf_url} file ..."):
-    #         everything_df.write_parquet(everythingdf_path)
-    #     st.caption(f"Saved {everythingdf_url}. File length is {everythingdf_path.stat().st_size} bytes.")
-
-    #display_experiments(df)
-
-    #non_unique_columns_df = df[['index', 'passout', 'trump', 'PBN', 'Hand_N', 'Hand_E', 'Hand_S', 'Hand_W', 'Event', 'BCFlags', 'Room', 'Score', 'bid_type', 'bid_denom', 'bid_penalty', 'bid_level', 'bid_alertable', 'bid_announcement', 'play_rank', 'play_suit', 'Board', 'Dealer', 'Vul', 'iVul', 'Vul_NS', 'Vul_EW', 'Contract', 'BidLvl', 'BidSuit', 'Dbl', 'Declarer_Direction', 'Result', 'Tricks', 'Player_Name_N', 'Player_Name_E', 'Player_Name_S', 'Player_Name_W', 'Player_ID_N', 'Player_ID_E', 'Player_ID_S', 'Player_ID_W']]
-    #st.dataframe(non_unique_columns_df)
-    return df
 
 
 def filter_dataframe(df, group_id, session_id, player_id, partner_id):
@@ -699,12 +524,12 @@ def create_sidebar():
     st.sidebar.markdown("**Automated Postmortem Apps**")
     st.sidebar.markdown("🔗 [ACBL Postmortem](https://acbl.postmortem.chat)")
     st.sidebar.markdown("🔗 [French ffbridge Postmortem](https://ffbridge.postmortem.chat)")
-    st.sidebar.markdown("🔗 [Calculate PBN](https://pbn.postmortem.chat)")
+    st.sidebar.markdown("🔗 [postmortem-pbn](https://pbn.postmortem.chat)")
     #st.sidebar.markdown("🔗 [BridgeWebs Postmortem](https://bridgewebs.postmortem.chat)")
     
     return
 
-# todo: put this in PBNResultsCalculator class?
+# todo: put this in PostmortemPbn class?
 def read_configs():
 
     st.session_state.default_favorites_file = pathlib.Path(
@@ -847,8 +672,8 @@ def initialize_website_specific():
 
 
 # todo: this class should be universal. its methods should initialize generic values followed by call outs to app-specific methods.
-class PBNResultsCalculator(PostmortemBase):
-    """PBN Results Calculator Streamlit application."""
+class PostmortemPbn(PostmortemBase):
+    """postmortem-pbn Streamlit application."""
     
     def __init__(self):
         super().__init__()
@@ -942,7 +767,7 @@ class PBNResultsCalculator(PostmortemBase):
     def create_main_content(self):
         """Create app-specific main content."""
         # Implementation
-        st.title("PBN Results Calculator")
+        st.title("postmortem-pbn")
         
         # File upload section
         st.header("Upload PBN File")
@@ -1001,5 +826,5 @@ class PBNResultsCalculator(PostmortemBase):
 
 if __name__ == "__main__":
     if 'app' not in st.session_state:
-        st.session_state.app = PBNResultsCalculator()
+        st.session_state.app = PostmortemPbn()
     st.session_state.app.main() 

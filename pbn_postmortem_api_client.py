@@ -1,4 +1,4 @@
-"""HTTP client for the Calculate-PBN postmortem API.
+"""HTTP client for the postmortem-pbn API.
 
 MCP (via MortyBridgeBot) and other callers use this instead of importing the
 library. Configure with PBN_POSTMORTEM_API_BASE_URL (default http://127.0.0.1:8520).
@@ -6,9 +6,11 @@ library. Configure with PBN_POSTMORTEM_API_BASE_URL (default http://127.0.0.1:85
 
 from __future__ import annotations
 
+import io
 import os
 from typing import Any, Dict, Optional
 
+import polars as pl
 import requests
 
 PBN_POSTMORTEM_API_BASE_URL = os.environ.get(
@@ -24,13 +26,13 @@ class PbnApiClientError(RuntimeError):
         self.status_code = status_code
 
 
-def _request(
+def _raw_request(
     method: str,
     path: str,
     params: Optional[Dict[str, Any]] = None,
     json: Optional[Dict[str, Any]] = None,
     timeout_s: float = _TIMEOUT_S,
-) -> Any:
+) -> requests.Response:
     url = f"{PBN_POSTMORTEM_API_BASE_URL}{path}"
     try:
         resp = requests.request(
@@ -42,7 +44,7 @@ def _request(
         )
     except requests.RequestException as exc:
         raise PbnApiClientError(
-            f"PBN postmortem API unreachable at {PBN_POSTMORTEM_API_BASE_URL}: {exc}"
+            f"postmortem-pbn API unreachable at {PBN_POSTMORTEM_API_BASE_URL}: {exc}"
         ) from exc
     if not resp.ok:
         try:
@@ -51,7 +53,17 @@ def _request(
         except ValueError:
             detail = resp.text
         raise PbnApiClientError(str(detail), status_code=resp.status_code)
-    return resp.json()
+    return resp
+
+
+def _request(
+    method: str,
+    path: str,
+    params: Optional[Dict[str, Any]] = None,
+    json: Optional[Dict[str, Any]] = None,
+    timeout_s: float = _TIMEOUT_S,
+) -> Any:
+    return _raw_request(method, path, params=params, json=json, timeout_s=timeout_s).json()
 
 
 def health() -> Dict[str, Any]:
@@ -68,25 +80,38 @@ def games(limit: int = 100) -> Dict[str, Any]:
 
 def boards(
     key: Optional[str] = None,
+    url: Optional[str] = None,
     columns: Optional[str] = None,
     limit: int = 100,
 ) -> Dict[str, Any]:
+    payload = {"key": key, "url": url, "columns": columns, "limit": limit}
+    if url:
+        return _request("POST", "/pbn/boards", json=payload)
+    return _request("GET", "/pbn/boards", {"key": key, "columns": columns, "limit": limit})
+
+
+def sql(
+    sql: str,
+    key: Optional[str] = None,
+    url: Optional[str] = None,
+    limit: int = 500,
+) -> Dict[str, Any]:
     return _request(
-        "GET",
-        "/pbn/boards",
-        {"key": key, "columns": columns, "limit": limit},
+        "POST",
+        "/pbn/sql",
+        json={"key": key, "url": url, "sql": sql, "limit": limit},
     )
-
-
-def sql(sql: str, key: Optional[str] = None, limit: int = 500) -> Dict[str, Any]:
-    return _request("POST", "/pbn/sql", json={"key": key, "sql": sql, "limit": limit})
 
 
 def schema(
     key: Optional[str] = None,
+    url: Optional[str] = None,
     pattern: Optional[str] = None,
     limit: int = 200,
 ) -> Dict[str, Any]:
+    payload = {"key": key, "url": url, "pattern": pattern, "limit": limit}
+    if url:
+        return _request("POST", "/pbn/schema", json=payload)
     return _request(
         "GET",
         "/pbn/schema",
@@ -104,3 +129,8 @@ def generate(
         "/pbn/generate",
         json={"url": url, "sd_samples": sd_samples, "force": force},
     )
+
+
+def postmortem_dataframe(key: Optional[str] = None) -> pl.DataFrame:
+    resp = _raw_request("GET", "/pbn/parquet", {"key": key})
+    return pl.read_parquet(io.BytesIO(resp.content))

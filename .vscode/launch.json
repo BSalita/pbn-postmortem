@@ -5,17 +5,17 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Streamlit: calculate_pbn_results_streamlit",
+            "name": "Streamlit: postmortem-pbn",
             "type": "debugpy",
             "request": "launch",
             "module": "streamlit",
             "justMyCode": true,
             "args": [
                 "run",
-                "calculate_pbn_results_streamlit.py", // was "${file}"
+                "postmortem_pbn_streamlit.py", // was "${file}"
             ],
             "env": {
-                "STREAMLIT_APP": "calculate_pbn_results_streamlit.py",
+                "STREAMLIT_APP": "postmortem_pbn_streamlit.py",
                 "STREAMLIT_ENV": "sql_query_mode",
                 "STREAMLIT_QUERY_STRING": "", // todo: add player id?
             }

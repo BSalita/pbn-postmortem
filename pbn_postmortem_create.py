@@ -1,7 +1,7 @@
 """Headless PBN/LIN load and augmentation (library create layer).
 
-Streamlit and the FastAPI server both call this. MCP never imports it;
-MortyBridgeBot reaches generate only through POST /pbn/generate.
+Only the FastAPI server imports this. Streamlit and MortyBridgeBot reach
+generate through POST /pbn/generate.
 """
 
 from __future__ import annotations
@@ -78,6 +78,41 @@ def lin_fetch_url_from_url(url: str) -> Optional[str]:
     return None
 
 
+def looks_like_source_url(value: Optional[str]) -> bool:
+    """True when value is a PBN/LIN path or a BBO Hand Viewer / linfetch URL.
+
+    Cache keys such as ``handviewer-deadbeef`` are not source URLs.
+    """
+    value = (value or '').strip()
+    if not value:
+        return False
+    lower = value.lower()
+    if lower.startswith(('http://', 'https://', 'file://')):
+        return True
+    if 'lin=' in lower or 'linurl=' in lower:
+        return True
+    if 'linfetch' in lower:
+        return True
+    return lower.endswith(('.pbn', '.lin'))
+
+
+def source_url_from_key_or_url(
+    key: Optional[str] = None,
+    url: Optional[str] = None,
+) -> Optional[str]:
+    """Prefer ``url``, else ``key``, when either is a fetchable source."""
+    for value in (url, key):
+        if looks_like_source_url(value):
+            return value.strip()
+    return None
+
+
+def is_lin_fetch_url(url: str) -> bool:
+    """BBO vugraph/webutil linfetch endpoints return a LIN document."""
+    path = urlparse(url).path.lower()
+    return 'linfetch' in path
+
+
 def input_suffix(url: str) -> str:
     """File suffix of a local path or of the URL path (ignores query string)."""
     parsed = urlparse(url)
@@ -135,6 +170,14 @@ def load_boards_from_source(url: str) -> Tuple[List[Board], pathlib.Path, str]:
         except Exception as exc:
             raise ValueError(f"Error opening or reading {lin_remote}: {exc}") from exc
         return _parse_boards(file_data, 'lin', lin_remote), path_url, 'lin'
+
+    if is_lin_fetch_url(url):
+        path_url = display_path_for_source(url, '.lin')
+        try:
+            file_data = _read_text(url)
+        except Exception as exc:
+            raise ValueError(f"Error opening or reading {url}: {exc}") from exc
+        return _parse_boards(file_data, 'lin', url), path_url, 'lin'
 
     suffix = input_suffix(url)
     if suffix not in ('.pbn', '.lin'):
@@ -224,7 +267,14 @@ def generate_postmortem(
     if not force:
         try:
             df, meta = service.load_postmortem(key)
-            meta = {**meta, 'cached': True, 'sd_samples': sd_samples}
+            meta = {
+                **meta,
+                'cached': True,
+                'sd_samples': sd_samples,
+                'query_hint': (
+                    'Pass this key, or the same URL, to /pbn/boards, /pbn/sql, or /pbn/schema.'
+                ),
+            }
             return df, meta
         except FileNotFoundError:
             pass
@@ -247,6 +297,9 @@ def generate_postmortem(
         'kind': kind,
         'sd_samples': sd_samples,
         'board_count': df.height,
+        'query_hint': (
+            'Pass this key, or the same URL, to /pbn/boards, /pbn/sql, or /pbn/schema.'
+        ),
     }
     if warning:
         meta['warning'] = warning

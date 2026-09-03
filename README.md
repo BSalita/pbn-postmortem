@@ -1,22 +1,20 @@
-# Calculate_PBN_Results
+# postmortem-pbn
 
-Bridge game statistics from a PBN or LIN file (including BBO Hand Viewer `?lin=` / `?linurl=` URLs). The same library path is used by Streamlit, the REST API, and MortyBridgeBot MCP.
+Bridge game statistics from a PBN or LIN file (including BBO Hand Viewer `?lin=` / `?linurl=` URLs). Same architecture as the ACBL and ffbridge postmortems: Streamlit and MortyBridgeBot are HTTP clients of the REST API. Only the API process imports the library.
 
 ## Architecture
 
 ```
-Streamlit UI  (port 8503)     POST /pbn/generate or sidebar URL
+Streamlit UI  (port 8503)          pbn_postmortem_api_client
+MortyBridgeBot MCP (port 8518)     HTTP client only
+        │
+        ▼
+REST API  (port 8520)              pbn_postmortem_api_server.py
         │
         ▼
 Library
-  pbn_postmortem_create.py    load PBN/LIN, augment, cache
-  pbn_postmortem_service.py   list/load/SQL/schema over cache/
-        │
-        ▼
-REST API  (port 8520)         pbn_postmortem_api_server.py
-        │
-        ▼
-MortyBridgeBot MCP (port 8518)  HTTP client only — never imports this library
+  pbn_postmortem_create.py         load PBN/LIN, augment, cache
+  pbn_postmortem_service.py        list/load/SQL/schema/parquet over cache/
 ```
 
 Augmented dataframes are stored as `cache/df-{key}.parquet` with a `df-{key}.json` sidecar for the source URL.
@@ -25,14 +23,31 @@ Augmented dataframes are stored as `cache/df-{key}.parquet` with a `df-{key}.jso
 
 ```powershell
 pip install -U -r requirements.txt
-streamlit run calculate_pbn_results_streamlit.py
 python pbn_postmortem_api_server.py
+streamlit run postmortem_pbn_streamlit.py
 ```
 
-API: `http://127.0.0.1:8520/health`. MCP tools live in MortyBridgeBot (`PBN_POSTMORTEM_API_BASE_URL`, default `http://127.0.0.1:8520`).
+API health: `http://127.0.0.1:8520/health` (`service`: `postmortem-pbn-api`).
+
+## API
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/health` | Process health and cache summary |
+| GET | `/pbn/dataset-info` | Cache directory and keys |
+| GET | `/pbn/games` | Cached games, newest first |
+| GET | `/pbn/boards` | Per-board summary (`key`, `columns`, `limit`) |
+| POST | `/pbn/sql` | DuckDB SQL against table `self` |
+| GET | `/pbn/schema` | Column names and dtypes |
+| GET | `/pbn/parquet` | Full augmented dataframe |
+| POST | `/pbn/generate` | Load a PBN/LIN/Hand Viewer URL, augment, cache |
+
+MCP tools live in MortyBridgeBot (`PBN_POSTMORTEM_API_BASE_URL`, default `http://127.0.0.1:8520`): `pbn_postmortem_dataset_info`, `pbn_postmortem_games`, `pbn_postmortem_boards`, `pbn_postmortem_sql`, `pbn_postmortem_schema`, `pbn_postmortem_generate`.
+
+A chatbot given a BBO Hand Viewer URL should pass that full URL as `url` to `pbn_postmortem_boards` or `pbn_postmortem_sql`. The API generates and caches the postmortem if needed (POST body, never a GET query string — `?lin=` values are too long). Do not fetch the Hand Viewer HTML page.
 
 ## Tests
 
 ```powershell
-python -m unittest test_pbn_postmortem_service.py test_pbn_postmortem_create.py
+python -m unittest test_pbn_postmortem_service.py test_pbn_postmortem_create.py test_pbn_postmortem_api.py test_pbn_streamlit_api_boundary.py
 ```
