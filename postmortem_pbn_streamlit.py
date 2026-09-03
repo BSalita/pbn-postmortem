@@ -355,6 +355,7 @@ def flatten_df(df):
 def change_game_state():
 
     st.markdown('<div style="height: 50px;"><a name="top-of-report"></a></div>', unsafe_allow_html=True)
+    streamlitlib.render_report_status_caption(st)
 
     with st.spinner(f'Preparing Bridge Game Postmortem Report. Takes 2 minutes total...'):
         #with st.session_state.chat_container:
@@ -824,8 +825,6 @@ class PostmortemPbn(PostmortemBase):
                 change_game_state()
         else:
             self.create_ui()
-        # Memory footer on the main page (same pattern as Elo_Ratings / ffbridge apps).
-        st.caption(streamlitlib.get_memory_caption_line(st))
         sync_url_params_from_state()
 
 
