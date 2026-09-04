@@ -823,6 +823,11 @@ class PostmortemPbn(PostmortemBase):
             self.create_sidebar()
             if st.session_state.pop('_url_autoload_pending', False):
                 change_game_state()
+                # Same as ffbridge: load from ?url= then rerun so create_ui
+                # writes the report instead of leaving the first-load intro.
+                if getattr(st.session_state, 'df', None) is not None:
+                    st.rerun()
+                    return
         else:
             self.create_ui()
         sync_url_params_from_state()
