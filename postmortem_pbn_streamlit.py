@@ -818,6 +818,7 @@ class PostmortemPbn(PostmortemBase):
 
     def main(self):
         """Main entry: same as base, plus Memory footer and URL auto-load."""
+        st.set_page_config(layout="wide", initial_sidebar_state="expanded")
         if 'first_time' not in st.session_state:
             self.initialize_session_state()
             self.create_sidebar()
@@ -834,6 +835,7 @@ class PostmortemPbn(PostmortemBase):
 
 
 if __name__ == "__main__":
+    st.set_page_config(layout="wide", initial_sidebar_state="expanded")
     if 'app' not in st.session_state:
         st.session_state.app = PostmortemPbn()
     st.session_state.app.main() 
