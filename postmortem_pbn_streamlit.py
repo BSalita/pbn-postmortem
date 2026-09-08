@@ -650,8 +650,8 @@ def reset_game_data():
 
 def initialize_website_specific():
 
-    st.session_state.assistant_logo = 'https://github.com/BSalita/Bridge_Game_Postmortem_Chatbot/blob/master/assets/logo_assistant.gif?raw=true' # 🥸 todo: put into config. must have raw=true for github url.
-    st.session_state.guru_logo = 'https://github.com/BSalita/Bridge_Game_Postmortem_Chatbot/blob/master/assets/logo_guru.png?raw=true' # 🥷todo: put into config file. must have raw=true for github url.
+    st.session_state.assistant_logo = 'https://github.com/BSalita/acbl-postmortem/blob/master/assets/logo_assistant.gif?raw=true' # 🥸 todo: put into config. must have raw=true for github url.
+    st.session_state.guru_logo = 'https://github.com/BSalita/acbl-postmortem/blob/master/assets/logo_guru.png?raw=true' # 🥷todo: put into config file. must have raw=true for github url.
     st.session_state.game_results_url_default = None
     st.session_state.game_name = 'pbn'
     st.session_state.game_results_url = st.session_state.game_results_url_default

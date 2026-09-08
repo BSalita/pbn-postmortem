@@ -1,5 +1,7 @@
 # postmortem-pbn
 
+GitHub: https://github.com/BSalita/pbn-postmortem
+
 Bridge game statistics from a PBN or LIN file (including BBO Hand Viewer `?lin=` / `?linurl=` URLs). Same architecture as the ACBL and ffbridge postmortems: Streamlit and MortyBridgeBot are HTTP clients of the REST API. Only the API process imports the library.
 
 ## Architecture
