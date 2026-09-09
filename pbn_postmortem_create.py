@@ -1,6 +1,6 @@
 """Headless PBN/LIN load and augmentation (library create layer).
 
-Only the FastAPI server imports this. Streamlit and MortyBridgeBot reach
+Only the FastAPI server imports this. Streamlit and MortyBridgeMCP reach
 generate through POST /pbn/generate.
 """
 

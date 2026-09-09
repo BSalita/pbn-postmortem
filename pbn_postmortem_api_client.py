@@ -1,6 +1,6 @@
 """HTTP client for the postmortem-pbn API.
 
-MCP (via MortyBridgeBot) and other callers use this instead of importing the
+MCP (via MortyBridgeMCP) and other callers use this instead of importing the
 library. Configure with PBN_POSTMORTEM_API_BASE_URL (default http://127.0.0.1:8520).
 """
 
