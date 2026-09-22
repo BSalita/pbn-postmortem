@@ -42,9 +42,11 @@ _CACHE_FILE_RE = re.compile(r"^df-(?P<key>.+)\.parquet$")
 # Default column set for the per-board summary tool; intersected with the
 # actual dataframe columns since PBN sources vary in what they carry.
 BOARD_SUMMARY_COLUMNS = [
-    "Board", "Contract", "Declarer_Direction", "Declarer_Name",
+    "Board", "Dealer", "Vul", "Contract", "Declarer_Direction", "Declarer_Name",
     "Result", "Tricks", "Score_NS", "Score_EW", "Pct_NS", "Pct_EW",
-    "MP_NS", "MP_EW", "Par_NS", "ParContract", "Room", "PBN",
+    "MP_NS", "MP_EW", "Par_NS", "ParContract",
+    "DD_Score_NS", "DD_Score_EW", "EV_Pct_Max_NS", "EV_Pct_Max_EW",
+    "Room", "PBN",
 ]
 
 
