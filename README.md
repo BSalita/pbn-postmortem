@@ -44,7 +44,7 @@ API health: `http://127.0.0.1:8520/health` (`service`: `postmortem-pbn-api`).
 | GET | `/pbn/parquet` | Full augmented dataframe |
 | POST | `/pbn/generate` | Load a PBN/LIN/Hand Viewer URL, augment, cache |
 
-MCP tools live in MortyBridgeMCP (`PBN_POSTMORTEM_API_BASE_URL`, default `http://127.0.0.1:8520`): `pbn_postmortem_dataset_info`, `pbn_postmortem_games`, `pbn_postmortem_boards`, `pbn_postmortem_sql`, `pbn_postmortem_schema`, `pbn_postmortem_generate`.
+MCP tools live in MortyBridgeMCP (`PBN_POSTMORTEM_API_BASE_URL`, default `http://127.0.0.1:8520`): `pbn_postmortem_games`, `pbn_postmortem_boards`, `pbn_postmortem_sql`, `pbn_postmortem_schema`, `pbn_postmortem_generate`. Dataset coverage is `bridge_status(component="pbn_postmortem")`.
 
 A chatbot given a BBO Hand Viewer URL should pass that full URL as `url` to `pbn_postmortem_boards` or `pbn_postmortem_sql`. The API generates and caches the postmortem if needed (POST body, never a GET query string — `?lin=` values are too long). Do not fetch the Hand Viewer HTML page.
 
