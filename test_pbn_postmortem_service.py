@@ -60,6 +60,16 @@ class CacheRoundTripTests(unittest.TestCase):
         self.assertEqual(result["row_count"], 2)
         self.assertEqual(result["rows"][0]["Contract"], "3NT")
 
+    def test_no_key_is_an_error_not_someone_elses_newest_game(self):
+        df = pl.DataFrame({"Board": [1], "Contract": ["3NT"], "Date": ["2026-09-03"]})
+        service.save_augmented_df_to_cache(df, "https://example.com/hands/other.pbn")
+        for missing in (None, ""):
+            with self.assertRaises(ValueError):
+                service.load_postmortem(missing)
+        # The original source URL still works as the key.
+        _, meta = service.load_postmortem("https://example.com/hands/other.pbn")
+        self.assertEqual(meta["url"], "https://example.com/hands/other.pbn")
+
 
 if __name__ == "__main__":
     unittest.main()

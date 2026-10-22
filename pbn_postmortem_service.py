@@ -122,22 +122,26 @@ def save_augmented_df_to_cache(df: Any, url: str) -> pathlib.Path:
 
 
 def _resolve_cache_file(key: Optional[str] = None) -> Tuple[pathlib.Path, Dict[str, Any]]:
+    # The cache is shared by every user, so "the newest game" may be someone
+    # else's. A caller must say which game it means.
+    if not key:
+        raise ValueError(
+            "Pass url (the PBN, LIN, or BBO Hand Viewer URL) or key "
+            "(from /pbn/games); the cache holds every user's games."
+        )
     cached = list_cached_postmortems()
     if not cached:
         raise FileNotFoundError(
             "No cached postmortem-pbn game. Generate one first with "
             "POST /pbn/generate or https://pbn.postmortem.chat/?url=<PBN or LIN url>."
         )
-    if key is None:
-        entry = cached[0]  # newest cache file
-    else:
-        # Accept the cache key or the original source URL.
-        entry = next((c for c in cached if c["key"] == key or c["url"] == key), None)
-        if entry is None:
-            raise FileNotFoundError(
-                f"No cached postmortem-pbn game for key or URL {key!r}. "
-                f"Cached keys: {[c['key'] for c in cached]}"
-            )
+    # Accept the cache key or the original source URL.
+    entry = next((c for c in cached if c["key"] == key or c["url"] == key), None)
+    if entry is None:
+        raise FileNotFoundError(
+            f"No cached postmortem-pbn game for key or URL {key!r}. "
+            f"Cached keys: {[c['key'] for c in cached]}"
+        )
     return CACHE_DIR / entry["file"], entry
 
 
