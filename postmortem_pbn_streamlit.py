@@ -194,14 +194,14 @@ def ShowDataFrameTable(df, key, query='SELECT * FROM self', show_sql_query=True)
     # try:
     #     # First try using Polars SQL. However, Polars doesn't support some SQL functions: string_agg(), agg_value(), some joins are not supported.
     #     if True: # workaround issued by polars. CASE WHEN AVG() ELSE AVG() -> AVG(CASE WHEN ...)
-    #         result_df = st.session_state.con.execute(query).pl()
+    #         result_df = st.session_state.con.sql(query).pl()
     #     else:
     #         result_df = df.sql(query) # todo: enforce FROM self for security concerns?
     # except Exception as e:
     #     try:
     #         # If Polars fails, try DuckDB
     #         print(f"Polars SQL failed. Trying DuckDB: {e}")
-    #         result_df = st.session_state.con.execute(query).pl()
+    #         result_df = st.session_state.con.sql(query).pl()
     #     except Exception as e2:
     #         st.error(f"Both Polars and DuckDB SQL engines have failed. Polars error: {e}, DuckDB error: {e2}. Query: {query}")
     #         return None
@@ -209,7 +209,7 @@ def ShowDataFrameTable(df, key, query='SELECT * FROM self', show_sql_query=True)
     try:
         # Use session-specific connection
         con = get_session_duckdb_connection()
-        result_df = cast_numeric_display_columns(con.execute(query).pl())
+        result_df = cast_numeric_display_columns(con.sql(query).pl())
         st.text(f"Result is a dataframe of {len(result_df)} rows.")
         streamlitlib.ShowDataFrameTable(result_df, key) # requires pandas dataframe.
     except Exception as e:
