@@ -532,7 +532,6 @@ def create_sidebar():
     with st.sidebar.expander('Developer Settings', False):
         # do not use .sidebar in expander. it's already in the sidebar.
         # SELECT Board, Vul, ParContract, ParScore_NS, Custom_ParContract FROM self
-        st.checkbox('Show SQL Query',value=st.session_state.show_sql_query,key='sql_query_checkbox',on_change=show_sql_query_change,help='Show SQL used to query dataframes.')
         # These files are reloaded each time for development purposes. Only takes a second.
         # todo: put filenames into a .json or .toml file?
         st.session_state.single_dummy_sample_count = st.number_input('Single Dummy Sample Count',value=st.session_state.single_dummy_sample_count,key='single_dummy_sample_count_number_input',on_change=sample_count_on_change,min_value=1,max_value=1000,step=1,help='Number of random deals to generate for calculating single dummy probabilities. Larger number (10 to 30) is more accurate but slower. Use 1 to 5 for fast, less accurate results.')
@@ -556,7 +555,11 @@ def create_sidebar():
     st.sidebar.markdown("🔗 [FFBridge Postmortem](https://ffbridge.postmortem.chat)")
     st.sidebar.markdown("🔗 [FFBridge Statistics](https://ffbridge-stats.7nt.info)")
     st.sidebar.markdown("🔗 [PBN/LIN Postmortem](https://pbn.postmortem.chat)")
-    
+
+    # Show SQL query - shows the SQL above each SQL-produced grid; synced with ?show_sql_query=
+    st.sidebar.markdown("---")
+    st.sidebar.checkbox('Show SQL query',value=st.session_state.show_sql_query,key='sql_query_checkbox',on_change=show_sql_query_change,help='Show the SQL query used to produce each table.')
+
     return
 
 # todo: put this in PostmortemPbn class?
@@ -735,7 +738,11 @@ class PostmortemPbn(PostmortemBase):
         """Initialize app-specific session state."""
         # First initialize common session state
         self.initialize_common_session_state()
-        
+
+        # "Show SQL query" sidebar checkbox defaults to unchecked (the base class
+        # default depends on STREAMLIT_ENV); ?show_sql_query=1 overrides below.
+        st.session_state.show_sql_query = False
+
         # PBN-specific session state
         pbn_specific_vars = {
             'pbn_file': None,
