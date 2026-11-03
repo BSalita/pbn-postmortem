@@ -10,7 +10,7 @@ import subprocess
 import sys
 import tempfile
 from datetime import datetime, timezone
-from typing import Optional
+from typing import List, Optional, Union
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import Response
@@ -48,6 +48,24 @@ class GenerateRequest(BaseModel):
     url: str
     sd_samples: int = 10
     force: bool = False
+
+
+class ClaimRequest(BaseModel):
+    """A claim: the deal at the start of play, the play so far, and the claim."""
+
+    deal: str
+    strain: str
+    declarer: str
+    plays: Union[List[str], str] = []
+    claimer: Optional[str] = None
+    total_tricks: Optional[int] = None
+    leader: Optional[str] = None
+    budget: int = 2_000_000
+
+
+# A claim checks in milliseconds; the hardest valid ones need millions of
+# nodes. Beyond this a request could hold a worker for minutes.
+_MAX_CLAIM_BUDGET = 20_000_000
 
 
 def _run(callable_, /, *args, **kwargs):
@@ -194,6 +212,67 @@ def generate(request: GenerateRequest) -> dict:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+def _claim_checker():
+    """mlBridge's DDS wrapper, imported on first use (it loads the library)."""
+    create._ensure_mlbridge_on_path()
+    from mlBridge import dds_ddss
+
+    return dds_ddss
+
+
+@app.post("/pbn/claim")
+def claim(request: ClaimRequest) -> dict:
+    """Whether a claim holds however the cards the claimer cannot see lie.
+
+    The claimer sees their own hand and dummy; the other two may be split any
+    way consistent with the play and are played by an adversary. Without
+    total_tricks, the largest valid claim. Totals count tricks already won.
+    """
+    plays = request.plays.split() if isinstance(request.plays, str) else request.plays
+    if not 1 <= request.budget <= _MAX_CLAIM_BUDGET:
+        raise HTTPException(
+            status_code=422, detail=f"budget must be 1 .. {_MAX_CLAIM_BUDGET:,} nodes"
+        )
+    try:
+        checker = _claim_checker()
+    except (ImportError, FileNotFoundError, OSError) as exc:
+        raise HTTPException(status_code=503, detail=f"claim checker unavailable: {exc}") from exc
+    if not checker.claim_supported():
+        raise HTTPException(
+            status_code=503,
+            detail="the loaded DDS library has no claim checker (CheckClaimPBN)",
+        )
+    try:
+        result = checker.check_claim(
+            request.deal,
+            request.strain,
+            request.declarer,
+            plays,
+            claimer=request.claimer,
+            total_tricks=request.total_tricks,
+            leader=request.leader,
+            budget=request.budget,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    claimer = (request.claimer or request.declarer).strip().upper()
+    return {
+        "deal": request.deal,
+        "strain": request.strain,
+        "declarer": request.declarer.strip().upper(),
+        "claimer": claimer,
+        "plays": len(plays),
+        "total_tricks": request.total_tricks,
+        **result,
+        "model": (
+            "Valid only if it holds however the cards the claimer cannot see lie: "
+            "the claimer sees their hand and dummy; a defender's claim must work "
+            "whatever partner holds and plays. undecided = budget ran out; treat as "
+            "rejected, as BBO does."
+        ),
+    }
 
 
 if __name__ == "__main__":
