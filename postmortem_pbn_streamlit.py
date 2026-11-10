@@ -483,12 +483,12 @@ def filter_dataframe(df, group_id, session_id, player_id, partner_id):
 
     return df
 
+ASSISTANT_LOGO_URL = 'https://github.com/BSalita/acbl-postmortem/blob/master/assets/logo_assistant.gif?raw=true' # 🥸 todo: put into config. must have raw=true for github url.
+
+
 def render_sidebar_brand(title: str) -> None:
     """Gif and short title at the top of the sidebar, as in MortyBridgeChatbot."""
-    logo_url = st.session_state.get(
-        "assistant_logo",
-        "https://github.com/BSalita/acbl-postmortem/blob/master/assets/logo_assistant.gif?raw=true",
-    )
+    logo_url = st.session_state.get("assistant_logo", ASSISTANT_LOGO_URL)
     st.sidebar.markdown(
         (
             '<div style="display:flex;align-items:center;gap:0.6rem;margin:0 0 0.75rem 0;">'
@@ -677,7 +677,7 @@ def reset_game_data():
 
 def initialize_website_specific():
 
-    st.session_state.assistant_logo = 'https://github.com/BSalita/acbl-postmortem/blob/master/assets/logo_assistant.gif?raw=true' # 🥸 todo: put into config. must have raw=true for github url.
+    st.session_state.assistant_logo = ASSISTANT_LOGO_URL
     st.session_state.guru_logo = 'https://github.com/BSalita/acbl-postmortem/blob/master/assets/logo_guru.png?raw=true' # 🥷todo: put into config file. must have raw=true for github url.
     st.session_state.game_results_url_default = None
     st.session_state.game_name = 'pbn'
@@ -849,7 +849,7 @@ class PostmortemPbn(PostmortemBase):
 
     def main(self):
         """Main entry: same as base, plus Memory footer and URL auto-load."""
-        st.set_page_config(layout="wide", initial_sidebar_state="expanded")
+        st.set_page_config(page_icon=ASSISTANT_LOGO_URL, layout="wide", initial_sidebar_state="expanded")
         if 'first_time' not in st.session_state:
             self.initialize_session_state()
             self.create_sidebar()
@@ -866,7 +866,7 @@ class PostmortemPbn(PostmortemBase):
 
 
 if __name__ == "__main__":
-    st.set_page_config(layout="wide", initial_sidebar_state="expanded")
+    st.set_page_config(page_icon=ASSISTANT_LOGO_URL, layout="wide", initial_sidebar_state="expanded")
     if 'app' not in st.session_state:
         st.session_state.app = PostmortemPbn()
     st.session_state.app.main() 
