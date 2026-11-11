@@ -76,7 +76,7 @@ for _p in _resolved_libs:
 from typing import Any
 
 import streamlitlib
-from mlBridge.mlBridgePostmortemLib import PostmortemBase
+from mlBridge.mlBridgePostmortemLib import PostmortemBase, sidebar_report_buttons
 from mlBridge.mlBridgeLib import cast_numeric_display_columns
 #import mlBridgeBiddingLib
 import pbn_postmortem_api_client as pbn_api
@@ -361,6 +361,7 @@ def change_game_state():
     with st.spinner(f'Preparing Bridge Game Postmortem Report. Takes 2 minutes total...'):
         #with st.session_state.chat_container:
         reset_game_data() # wipe out all game state data
+        st.session_state.button_title = 'Summarize' # a new game opens on the full postmortem
         st.session_state.session_id = 'unknown session'
         st.session_state.group_id = 'unknown group'
         st.session_state.player_id = 'unknown player'
@@ -485,6 +486,9 @@ def filter_dataframe(df, group_id, session_id, player_id, partner_id):
 
 ASSISTANT_LOGO_URL = 'https://github.com/BSalita/acbl-postmortem/blob/master/assets/logo_assistant.gif?raw=true' # 🥸 todo: put into config. must have raw=true for github url.
 
+# Sidebar report buttons, keys of favorites['Buttons']. No AI_Predictions: this app makes no predictions.
+REPORT_BUTTONS = ('Summarize', 'Summarize_Briefly', 'Hand_Expectations')
+
 
 def render_sidebar_brand(title: str) -> None:
     """Gif and short title at the top of the sidebar, as in MortyBridgeChatbot."""
@@ -517,7 +521,8 @@ def create_sidebar():
         st.session_state.create_sidebar_text_input_url_key = default_url
     st.sidebar.text_input('Enter URL:', on_change=change_game_state, key='create_sidebar_text_input_url_key', help='PBN or LIN file (URL or local name), or a BBO Hand Viewer link with ?lin= or ?linurl=.') # , on_change=change_game_state
     # using css to change button color for the entire button width. The color was choosen to match the the restrictive text colorizer (:green-background[Go]) used in st.info() below.
-    css = """section[data-testid="stSidebar"] div.stButton button {
+    # Only the Go button: the report buttons below keep the default look.
+    css = """section[data-testid="stSidebar"] .st-key-create_sidebar_go_button_key button {
         background-color: rgba(33, 195, 84, 0.1);
         width: 50px;
         }"""
@@ -543,6 +548,9 @@ def create_sidebar():
     st.session_state.debug_favorites_file = pathlib.Path(
         'favorites/debug.favorites.json')
     read_configs()
+
+    if st.session_state.get('df') is not None and st.session_state.get('favorites'):
+        sidebar_report_buttons(get_session_duckdb_connection(), REPORT_BUTTONS)
 
     # Other Morty websites
     st.sidebar.markdown("---")
