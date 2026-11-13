@@ -76,7 +76,7 @@ for _p in _resolved_libs:
 from typing import Any
 
 import streamlitlib
-from mlBridge.mlBridgePostmortemLib import PostmortemBase, sidebar_report_buttons
+from mlBridge.mlBridgePostmortemLib import PostmortemBase, sidebar_report_buttons, when_connection_free
 from mlBridge.mlBridgeLib import cast_numeric_display_columns
 #import mlBridgeBiddingLib
 import pbn_postmortem_api_client as pbn_api
@@ -209,7 +209,7 @@ def ShowDataFrameTable(df, key, query='SELECT * FROM self', show_sql_query=True)
     try:
         # Use session-specific connection
         con = get_session_duckdb_connection()
-        result_df = cast_numeric_display_columns(con.sql(query).pl())
+        result_df = cast_numeric_display_columns(when_connection_free(lambda: con.sql(query).pl()))
         st.text(f"Result is a dataframe of {len(result_df)} rows.")
         streamlitlib.ShowDataFrameTable(result_df, key) # requires pandas dataframe.
     except Exception as e:
@@ -417,7 +417,7 @@ def change_game_state():
 
         # Register dataframe with session-specific connection
         con = get_session_duckdb_connection()
-        con.register(st.session_state.con_register_name, st.session_state.df) # ugh, df['scores_l'] must be previously dropped otherwise this hangs. reason unknown.
+        when_connection_free(lambda: con.register(st.session_state.con_register_name, st.session_state.df)) # ugh, df['scores_l'] must be previously dropped otherwise this hangs. reason unknown.
 
     return
 
